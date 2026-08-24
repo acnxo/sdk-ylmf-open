@@ -5,12 +5,12 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * {@link YlmfOpenSdk} 单元测试。
+ * {@link YlmfOpenClient} 单元测试。
  */
-class YlmfOpenSdkTest {
+class YlmfOpenClientTest {
 
     @Test
     void versionShouldMatchPom() {
-        assertEquals("0.0.1-SNAPSHOT", YlmfOpenSdk.VERSION);
+        assertEquals("0.0.1-SNAPSHOT", YlmfOpenClient.VERSION);
     }
 }

@@ -23,9 +23,9 @@
 
 ```java
 // 根包：com.github.acnxo.ylmf.open
-import com.github.acnxo.ylmf.open.YlmfOpenSdk;
+import com.github.acnxo.ylmf.open.YlmfOpenClient;
 
-System.out.println(YlmfOpenSdk.VERSION);
+System.out.println(YlmfOpenClient.VERSION);
 ```
 
 ## 文档
