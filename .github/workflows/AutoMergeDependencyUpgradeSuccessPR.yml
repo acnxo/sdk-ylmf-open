@@ -7,6 +7,10 @@ on:
     types: [completed]
   workflow_dispatch:
     # 手动触发：处理当前所有 open 的依赖升级 PR（兜底）
+  schedule:
+    # 定时兜底：每 6 小时执行一次，确保依赖升级 PR 不漏合并
+    # （workflow_run 并发触发时旧排队 run 会被取消，由本定时任务兜底）
+    - cron: '0 */6 * * *'
 
 permissions:
   contents: write
@@ -23,9 +27,13 @@ jobs:
       - name: 自动合并依赖升级 PR
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO_NAME: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -e
-          REPO="${{ github.repository }}"
+          REPO="$REPO_NAME"
 
           # 处理单个依赖升级 PR：等待所有检查通过后自动合并（默认 squash 方式）
           process_pr() {
@@ -65,16 +73,16 @@ jobs:
                 break
               fi
               if [ "$failed" -gt 0 ]; then
-                echo "❌ PR #${pr_number} 存在失败的检查，自动合并不成功，任务退出。"
-                return 1
+                echo "❌ PR #${pr_number} 存在失败的检查，跳过该 PR，继续处理下一个。"
+                return 0
               fi
               sleep 60
             done
 
             # 超时仍未全部通过
             if [ "$pending" -gt 0 ] || [ "$failed" -gt 0 ]; then
-              echo "⏰ 等待超时（12 分钟），PR #${pr_number} 尚有检查未通过，自动合并不成功，任务退出。"
-              return 1
+              echo "⏰ 等待超时（12 分钟），PR #${pr_number} 尚有检查未通过，跳过该 PR，等待下次触发。"
+              return 0
             fi
 
             # 执行自动合并（默认 squash 方式）
@@ -83,35 +91,46 @@ jobs:
               echo "🎉 PR #${pr_number} 已自动合并完成！"
             else
               echo ""
-              echo "❌ PR #${pr_number} 自动合并失败，详细信息如下："
+              echo "❌ PR #${pr_number} 自动合并失败，尝试自动更新分支（基于 base 分支最新代码）..."
               echo "----------------------------------------------"
               echo "$merge_output"
               echo "----------------------------------------------"
-              echo "📤 自动合并不成功，任务退出。"
-              exit 1
+              # 自动更新分支：把 base 分支最新提交合并进 head 分支，
+              # 产生新 commit → 触发 pull_request(synchronize) → CI 重跑 →
+              # 检查全绿后 workflow_run 再次触发本工作流自动重试合并
+              if update_output=$(gh pr update-branch "$pr_number" --repo "$REPO" 2>&1); then
+                echo "✅ PR #${pr_number} 已基于 base 分支自动更新，等待 CI 重跑后自动再次合并。"
+                return 0
+              else
+                echo "❌ PR #${pr_number} 更新分支失败（可能存在文本冲突，需人工解决），详情如下："
+                echo "----------------------------------------------"
+                echo "$update_output"
+                echo "----------------------------------------------"
+                echo "📤 自动更新不成功，任务退出。"
+                exit 1
+              fi
             fi
           }
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # 手动触发：遍历所有 open 的依赖升级 PR（dependabot/** 与 ci/dependency-upgrade）
-            echo "🖐 手动触发模式：开始处理所有 open 的依赖升级 PR ..."
-            while IFS=$'\t' read -r branch; do
-              [ -z "$branch" ] && continue
-              process_pr "$branch"
-            done < <(gh pr list --repo "$REPO" --state open --json headRefName \
-              --jq '.[] | select(.headRefName | startswith("dependabot/") or . == "ci/dependency-upgrade") | .headRefName')
+          # 无论 workflow_run / schedule / workflow_dispatch，均按 PR 编号升序遍历所有 open 的依赖升级 PR
+          # （编号小的先合并，编号大的后合并；串行队列内一次推进一个）
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              echo "🖐 手动触发模式：按 PR 编号升序处理所有 open 的依赖升级 PR ..."
+              ;;
+            schedule)
+              echo "⏰ 定时兜底触发（每 3 小时）：按 PR 编号升序处理所有 open 的依赖升级 PR ..."
+              ;;
+            *)
+              echo "🔄 CI 已完成触发（分支: ${RUN_HEAD_BRANCH}，结论: ${RUN_CONCLUSION}），按 PR 编号升序处理 ..."
+              ;;
+          esac
+          while IFS=$'\t' read -r number branch; do
+            [ -z "$branch" ] && continue
             echo ""
-            echo "🎉 手动处理完成！"
-          else
-            # workflow_run 触发：处理本次 CICD run 对应的分支
-            HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
-            echo "🔄 CICD 已完成（分支: ${HEAD_BRANCH}，结论: ${{ github.event.workflow_run.conclusion }}）"
-            case "$HEAD_BRANCH" in
-              dependabot/*|ci/dependency-upgrade)
-                process_pr "$HEAD_BRANCH"
-                ;;
-              *)
-                echo "ℹ️  分支 ${HEAD_BRANCH} 不是依赖升级分支，无需处理。"
-                ;;
-            esac
-          fi
+            echo "📌 队列 #${number}（${branch}）"
+            process_pr "$branch"
+          done < <(gh pr list --repo "$REPO" --state open --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("dependabot/") or startswith("dependabot-") or . == "ci/dependency-upgrade") | [.number, .headRefName] | @tsv' | sort -n)
+          echo ""
+          echo "🎉 本轮按编号顺序处理完成！"
