@@ -11,3 +11,15 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
+
+  # GitHub Actions 自动升级（每周日检查）
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: sunday
+      time: '02:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
