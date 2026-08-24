@@ -34,7 +34,7 @@
 
         <!-- 插件版本统一管理 -->
         <maven-surefire-plugin.version>3.5.6</maven-surefire-plugin.version>
-        <spotbugs-maven-plugin.version>4.8.6.6</spotbugs-maven-plugin.version>
+        <spotbugs-maven-plugin.version>4.10.4.0</spotbugs-maven-plugin.version>
     </properties>
 
     <dependencies>
