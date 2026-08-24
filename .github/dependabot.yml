@@ -1,9 +1,9 @@
 version: 2
 updates:
-  # Maven 依赖自动升级（每周日检查，PR 目标分支 dev）
+  # Maven 依赖自动升级（每周日检查，PR 目标分支 dependa）
   - package-ecosystem: maven
     directory: "/"
-    target-branch: dev
+    target-branch: dependa
     schedule:
       interval: weekly
       day: sunday
@@ -13,10 +13,10 @@ updates:
     labels:
       - dependencies
 
-  # GitHub Actions 依赖自动升级（每周日检查，PR 目标分支 dev）
+  # GitHub Actions 依赖自动升级（每周日检查，PR 目标分支 dependa）
   - package-ecosystem: github-actions
     directory: "/"
-    target-branch: dev
+    target-branch: dependa
     schedule:
       interval: weekly
       day: sunday
