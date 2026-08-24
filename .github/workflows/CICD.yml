@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      - dev
+      - dependa
       - feat/**
       - fix/**
       - refactor/**
@@ -11,6 +13,8 @@ on:
   pull_request:
     branches:
       - main
+      - dev
+      - dependa
   schedule:
     # 每周日 02:00 UTC（北京时间 10:00）触发依赖自动升级检查
     - cron: '0 2 * * 0'
@@ -173,6 +177,9 @@ jobs:
     steps:
       - name: CheckoutCode
         uses: actions/checkout@v7
+        with:
+          # schedule 在默认分支（main）触发，依赖升级基于 dependa 分支执行
+          ref: dependa
 
       - name: SetupJava
         uses: actions/setup-java@v5
@@ -187,6 +194,8 @@ jobs:
       - name: CreatePullRequest
         uses: peter-evans/create-pull-request@v8
         with:
+          # 依赖升级 PR 统一以 dependa 为目标分支（定期合并到 dev，发版时再合入 main）
+          base: dependa
           branch: ci/dependency-upgrade
           title: 'chore(deps): 自动升级 Maven 依赖至最新版本'
           commit-message: 'chore(deps): 自动升级 Maven 依赖至最新版本'

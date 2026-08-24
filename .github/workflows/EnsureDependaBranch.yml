@@ -1,0 +1,62 @@
+name: EnsureDependaBranch
+
+on:
+  schedule:
+    # 每天 04:00 UTC（北京时间 12:00）执行一次
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ensure-dependa:
+    name: EnsureDependaBranch
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 检查并创建 dependa 分支
+        run: |
+          set -e
+
+          echo "=============================================="
+          echo "🔍 开始检查 dependa 分支是否存在..."
+          echo "=============================================="
+
+          # 检查远程 dependa 分支是否存在
+          if git ls-remote --heads origin dependa | grep -q 'refs/heads/dependa'; then
+            echo ""
+            echo "✅ dependa 分支已存在，无需任何处理，任务结束。"
+            echo "📌 当前 dependa 分支："
+            git ls-remote --heads origin dependa
+            exit 0
+          fi
+
+          echo ""
+          echo "ℹ️  dependa 分支不存在，准备基于 dev 分支创建..."
+
+          # 拉取 dev 分支最新代码
+          echo ""
+          echo "🔧 正在拉取 dev 分支最新代码..."
+          git fetch --depth=1 origin dev
+          echo "✅ dev 分支代码已拉取。"
+
+          # 基于 dev 创建 dependa 分支
+          echo ""
+          echo "🔧 正在基于 dev 分支创建 dependa 分支..."
+          git checkout -b dependa origin/dev
+          echo "✅ 本地 dependa 分支创建成功（基于 dev）。"
+
+          # 推送到远程
+          echo ""
+          echo "📤 正在推送 dependa 分支到远程仓库..."
+          git push origin dependa
+          echo "✅ dependa 分支创建并推送成功！"
+
+          echo ""
+          echo "=============================================="
+          echo "🎉 任务完成：dependa 分支已基于 dev 分支创建。"
+          echo "=============================================="
