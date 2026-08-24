@@ -1,0 +1,199 @@
+name: CICD
+
+on:
+  push:
+    branches:
+      - main
+      - feat/**
+      - fix/**
+      - refactor/**
+      - ci/**
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # 每周日 02:00 UTC（北京时间 10:00）触发依赖自动升级检查
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      javaVersion:
+        description: 'JDK 版本'
+        required: false
+        default: '21'
+        type: choice
+        options:
+          - '21'
+          - '25'
+
+permissions:
+  contents: write
+  checks: write
+  pull-requests: write
+
+jobs:
+  # ============================================================
+  # 编译（Build/Compile）
+  # 动态矩阵：push / pull_request 并行 JDK 21（主）+ JDK 25；
+  # workflow_dispatch 仅运行手动选择的 JDK 版本
+  # ============================================================
+  build-compile:
+    name: BuildCompile
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java-version: ${{ fromJson(github.event.inputs && format('["{0}"]', github.event.inputs.javaVersion) || '["21","25"]') }}
+
+    steps:
+      - name: CheckoutCode
+        uses: actions/checkout@v4
+
+      - name: SetupJava
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java-version }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: CompileSource
+        run: mvn -B compile --no-transfer-progress
+
+  # ============================================================
+  # 单元测试（Build/Compile 成功后执行）
+  # ============================================================
+  unit-test:
+    name: UnitTest
+    runs-on: ubuntu-latest
+    needs: build-compile
+    strategy:
+      fail-fast: false
+      matrix:
+        java-version: ${{ fromJson(github.event.inputs && format('["{0}"]', github.event.inputs.javaVersion) || '["21","25"]') }}
+
+    steps:
+      - name: CheckoutCode
+        uses: actions/checkout@v4
+
+      - name: SetupJava
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java-version }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: RunUnitTests
+        run: mvn -B test --no-transfer-progress
+        env:
+          JAVA_OPTS: -Xmx512m
+
+      - name: UploadTestResults
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-jdk${{ matrix.java-version }}
+          path: '**/target/surefire-reports/*.xml'
+          retention-days: 7
+
+  # ============================================================
+  # 质量卡点（静态分析，Build/Compile 成功后执行）
+  # ============================================================
+  quality-gate:
+    name: QualityGate
+    runs-on: ubuntu-latest
+    needs: build-compile
+
+    steps:
+      - name: CheckoutCode
+        uses: actions/checkout@v4
+
+      - name: SetupJava
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: RunSpotBugsAnalysis
+        run: mvn -B spotbugs:check --no-transfer-progress
+
+      - name: RunDependencyAnalysis
+        run: mvn -B org.apache.maven.plugins:maven-dependency-plugin:3.7.1:analyze --no-transfer-progress
+        continue-on-error: true
+
+  # ============================================================
+  # 打包（Build/Compile + UnitTest + QualityGate 均成功后执行）
+  # ============================================================
+  build-maven-artifacts:
+    name: BuildMavenArtifacts
+    runs-on: ubuntu-latest
+    needs: [build-compile, unit-test, quality-gate]
+    if: |
+      needs.unit-test.result == 'success'
+      && needs.build-compile.result == 'success'
+      && needs.quality-gate.result == 'success'
+
+    steps:
+      - name: CheckoutCode
+        uses: actions/checkout@v4
+
+      - name: SetupJava
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: PackageArtifacts
+        run: mvn -B package -DskipTests --no-transfer-progress
+
+      - name: UploadJarArtifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-ylmf-open-jars
+          path: '**/target/*.jar'
+          retention-days: 5
+
+      - name: UploadSourceJarArtifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-ylmf-open-sources
+          path: '**/target/*-sources.jar'
+          retention-days: 5
+
+  # ============================================================
+  # 依赖自动升级（每周日 schedule 触发，仅 main 分支）
+  # 使用 Maven versions 插件将 pom.xml 中依赖升级至最新版本，
+  # 如有变更自动创建 PR（无变更则不创建）
+  # ============================================================
+  dependency-upgrade:
+    name: DependencyUpgrade
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: CheckoutCode
+        uses: actions/checkout@v4
+
+      - name: SetupJava
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: ApplyLatestVersions
+        run: mvn -B versions:use-latest-versions -DgenerateBackupPoms=false --no-transfer-progress
+
+      - name: CreatePullRequest
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: ci/dependency-upgrade
+          title: 'chore(deps): 自动升级 Maven 依赖至最新版本'
+          commit-message: 'chore(deps): 自动升级 Maven 依赖至最新版本'
+          body: |
+            🤖 由 CICD 每周日自动依赖升级检查生成。
+
+            - 使用 Maven versions 插件将 pom.xml 中依赖升级至最新版本
+            - 请确认变更无误后合并
+          labels: dependencies
+          delete-branch: true
