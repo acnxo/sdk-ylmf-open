@@ -185,7 +185,7 @@ jobs:
         run: mvn -B versions:use-latest-versions -DgenerateBackupPoms=false --no-transfer-progress
 
       - name: CreatePullRequest
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: ci/dependency-upgrade
           title: 'chore(deps): 自动升级 Maven 依赖至最新版本'
