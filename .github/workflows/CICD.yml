@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
       - feat/**
       - fix/**
       - refactor/**
@@ -11,6 +12,7 @@ on:
   pull_request:
     branches:
       - main
+      - dev
   schedule:
     # 每周日 02:00 UTC（北京时间 10:00）触发依赖自动升级检查
     - cron: '0 2 * * 0'
@@ -173,6 +175,9 @@ jobs:
     steps:
       - name: CheckoutCode
         uses: actions/checkout@v7
+        with:
+          # schedule 在默认分支（main）触发，依赖升级基于 dev 分支执行
+          ref: dev
 
       - name: SetupJava
         uses: actions/setup-java@v5
@@ -187,6 +192,8 @@ jobs:
       - name: CreatePullRequest
         uses: peter-evans/create-pull-request@v8
         with:
+          # 依赖升级 PR 统一以 dev 为目标分支
+          base: dev
           branch: ci/dependency-upgrade
           title: 'chore(deps): 自动升级 Maven 依赖至最新版本'
           commit-message: 'chore(deps): 自动升级 Maven 依赖至最新版本'
